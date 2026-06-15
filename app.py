@@ -27,6 +27,21 @@ pilihan_halaman = st.sidebar.radio("Pilih Halaman Menu:",
                                   "Generator Playlist (Berdasarkan Mood)",
                                   "Prediksi Segmen Lagu Baru"])
 
+# --- MAPPING AKTIVITAS → (CLUSTER, GENRE) ---
+# Format dropdown: "AKTIVITAS - Genre X"
+# Genre diambil dari dataset yang tersedia
+AKTIVITAS_CONFIG = {
+    "Membaca Buku - Genre Chill":               (0, "chill"),
+    "Pengantar Tidur - Genre Sleep":             (0, "sleep"),
+    "Fokus Belajar - Genre Study":               (0, "study"),
+    "Meditasi atau Yoga - Genre Ambient":        (0, "ambient"),
+    "Olahraga - Genre Rock":                     (1, "rock"),
+    "Membangkitkan Adrenalin - Genre J-Rock":    (1, "j-rock"),
+    "Pesta dan Kumpul Teman - Genre Dance":      (1, "dance"),
+    "Roadtrip atau Perjalanan - Genre Pop":      (1, "pop"),
+    "Menaikkan Mood (Good Vibes) - Genre Happy": (1, "happy"),
+}
+
 # --- HALAMAN 1: BERANDA ---
 if pilihan_halaman == "Beranda & Pemahaman Bisnis":
     st.title("Sistem Analisis Karakteristik Audio Spotify")
@@ -35,7 +50,6 @@ if pilihan_halaman == "Beranda & Pemahaman Bisnis":
     st.subheader("Profil Segmen (Cluster)")
     st.write("- **Cluster 0:** Segmen Relaksasi dan Fokus (Didominasi lagu akustik, tempo lambat, energi rendah)")
     st.write("- **Cluster 1:** Segmen Agresif dan Intens (Didominasi lagu berenergi tinggi, keras, tempo cepat)")
-    # Removed Cluster 2 description since it's now 2 clusters
 
     st.info("Gunakan navigasi di sebelah kiri untuk mencoba sistem rekomendasi dan prediksi.")
 
@@ -44,33 +58,27 @@ elif pilihan_halaman == "Generator Playlist (Berdasarkan Mood)":
     st.title("Smart Auto-Playlist")
     st.write("Sistem akan merekomendasikan lagu berdasarkan karakteristik audio yang sesuai dengan aktivitas Anda.")
 
-    pilihan_mood = st.selectbox("Pilih Aktivitas atau Mood Anda saat ini:",
-                                ["-- Pilih --",
-                                 "Membaca Buku",
-                                 "Pengantar Tidur",
-                                 "Fokus Belajar",
-                                 "Meditasi atau Yoga",
-                                 "Olahraga", # Combined "Olahraga dan Gym" and "Lari Pagi"
-                                 "Membangkitkan Adrenalin",
-                                 "Pesta dan Kumpul Teman",
-                                 "Roadtrip atau Perjalanan",
-                                 "Menaikkan Mood (Good Vibes)"])
+    pilihan_mood = st.selectbox(
+        "Pilih Aktivitas atau Mood Anda saat ini:",
+        ["-- Pilih --"] + list(AKTIVITAS_CONFIG.keys())
+    )
 
     if st.button("Buat Playlist"):
         if pilihan_mood == "-- Pilih --":
             st.warning("Silakan pilih aktivitas terlebih dahulu.")
         else:
-            # Kelompok Santai (Cluster 0)
-            if pilihan_mood in ["Membaca Buku", "Pengantar Tidur", "Fokus Belajar", "Meditasi atau Yoga"]:
-                target = 0
+            target_cluster, target_genre = AKTIVITAS_CONFIG[pilihan_mood]
 
-            # Kelompok Agresif (Cluster 1)
-            elif pilihan_mood in ["Olahraga", "Membangkitkan Adrenalin", "Pesta dan Kumpul Teman", "Roadtrip atau Perjalanan", "Menaikkan Mood (Good Vibes)"]:
-                target = 1
+            # Filter berdasarkan cluster DAN genre yang sudah ditentukan
+            df_hasil = df[
+                (df['cluster'] == target_cluster) &
+                (df['track_genre'] == target_genre)
+            ]
 
-            # Removed the else case for Cluster 2 as there are only 2 clusters now
-
-            df_hasil = df[df['cluster'] == target]
+            # Fallback: kalau genre tidak cukup datanya, ambil dari cluster saja
+            if len(df_hasil) < 5:
+                st.info(f"Data genre '{target_genre}' di cluster {target_cluster} terbatas, menampilkan dari cluster yang sama.")
+                df_hasil = df[df['cluster'] == target_cluster]
 
             # Mengambil sampel 5 lagu
             playlist = df_hasil.sample(5)[['track_name', 'artists', 'popularity', 'track_genre']]
@@ -79,7 +87,7 @@ elif pilihan_halaman == "Generator Playlist (Berdasarkan Mood)":
 
             st.success(f"Berikut adalah rekomendasi lagu untuk '{pilihan_mood}':")
             st.table(playlist)
-            st.caption(f"Catatan Developer: Data ditarik otomatis dari Cluster {target} murni berdasarkan metrik audio.")
+            st.caption(f"Catatan Developer: Data ditarik dari Cluster {target_cluster} dengan genre '{target_genre}' berdasarkan metrik audio.")
 
 # --- HALAMAN 3: PREDIKSI LAGU BARU (Implementasi Model) ---
 elif pilihan_halaman == "Prediksi Segmen Lagu Baru":
@@ -104,21 +112,15 @@ elif pilihan_halaman == "Prediksi Segmen Lagu Baru":
         tempo = st.slider("Tempo (BPM)", 0.0, 250.0, 120.0)
 
     if st.button("Prediksi Cluster"):
-        # Menyusun data input sesuai urutan fitur saat training
         input_data = pd.DataFrame([[danceability, energy, loudness, speechiness,
                                     acousticness, instrumentalness, liveness, valence, tempo]],
                                   columns=['danceability', 'energy', 'loudness', 'speechiness',
                                            'acousticness', 'instrumentalness', 'liveness', 'valence', 'tempo'])
 
-        # Standarisasi input menggunakan scaler yang di-load
         input_scaled = scaler.transform(input_data)
-
-        # Prediksi menggunakan model K-Means
         hasil_prediksi = kmeans.predict(input_scaled)[0]
 
-        # Output hasil
         if hasil_prediksi == 0:
             st.success("Hasil Prediksi: Lagu ini masuk ke CLUSTER 0 (Segmen Relaksasi & Akustik)")
         elif hasil_prediksi == 1:
             st.error("Hasil Prediksi: Lagu ini masuk ke CLUSTER 1 (Segmen Agresif & Intens)")
-        # Removed the else case for Cluster 2 as there are only 2 clusters now
