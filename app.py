@@ -3,124 +3,184 @@ import pandas as pd
 import pickle
 import numpy as np
 
-# Konfigurasi Halaman
-st.set_page_config(page_title="Spotify Audio Analytics", layout="wide")
+st.set_page_config(
+    page_title="Spotify Analytics: Unsupervised & Supervised",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# Load Data, Model, dan Scaler
-@st.cache_data
-def load_dataset():
-    return pd.read_csv('spotify_deployed.csv')
+# 1. FUNGSI MEMUAT DATA & MODEL (CACHING)
+@st.cache_resource
+def load_assets():
+    try:
+        # Load Dataset yang sudah memiliki label K-Means
+        df = pd.read_csv('spotify_deployed.csv')
 
-try:
-    df = load_dataset()
-    with open('scaler_spotify.pkl', 'rb') as f:
-        scaler = pickle.load(f)
-    with open('kmeans_spotify.pkl', 'rb') as f:
-        kmeans = pickle.load(f)
-except FileNotFoundError:
-    st.error("File model atau dataset belum ditemukan. Pastikan proses export (pickle) sudah dijalankan.")
+        # Load Scaler
+        with open('scaler_spotify.pkl', 'rb') as f:
+            scaler = pickle.load(f)
 
-# Navigasi Sidebar
-st.sidebar.title("Navigasi Aplikasi")
-pilihan_halaman = st.sidebar.radio("Pilih Halaman Menu:",
-                                 ["Beranda & Pemahaman Bisnis",
-                                  "Generator Playlist (Berdasarkan Mood)",
-                                  "Prediksi Segmen Lagu Baru"])
+        # Load Model K-Means (Unsupervised)
+        with open('kmeans_spotify.pkl', 'rb') as f:
+            kmeans = pickle.load(f)
 
-# --- MAPPING AKTIVITAS → (CLUSTER, GENRE) ---
-# Format dropdown: "AKTIVITAS - Genre X"
-# Genre diambil dari dataset yang tersedia
-AKTIVITAS_CONFIG = {
-    "Membaca Buku - Genre Chill":               (0, "chill"),
-    "Pengantar Tidur - Genre Sleep":             (0, "sleep"),
-    "Fokus Belajar - Genre Study":               (0, "study"),
-    "Meditasi atau Yoga - Genre Ambient":        (0, "ambient"),
-    "Olahraga - Genre Rock":                     (1, "rock"),
-    "Membangkitkan Adrenalin - Genre J-Rock":    (1, "j-rock"),
-    "Pesta dan Kumpul Teman - Genre Dance":      (1, "dance"),
-    "Roadtrip atau Perjalanan - Genre Pop":      (1, "pop"),
-    "Menaikkan Mood (Good Vibes) - Genre Happy": (1, "happy"),
-}
+        # Load Model Naive Bayes (Supervised 1 - Prediksi Mood)
+        with open('naivebayes_spotify.pkl', 'rb') as f:
+            gnb = pickle.load(f)
 
-# --- HALAMAN 1: BERANDA ---
-if pilihan_halaman == "Beranda & Pemahaman Bisnis":
-    st.title("Sistem Analisis Karakteristik Audio Spotify")
-    st.write("Aplikasi ini merupakan implementasi dari model Data Mining (K-Means Clustering) untuk mengelompokkan karakteristik audio secara objektif tanpa bias label genre.")
+        # Load Model Logistic Regression (Supervised 2 - Prediksi Eksplisit)
+        with open('logreg_spotify.pkl', 'rb') as f:
+            logreg = pickle.load(f)
 
-    st.subheader("Profil Segmen (Cluster)")
-    st.write("- **Cluster 0:** Segmen Relaksasi dan Fokus (Didominasi lagu akustik, tempo lambat, energi rendah)")
-    st.write("- **Cluster 1:** Segmen Agresif dan Intens (Didominasi lagu berenergi tinggi, keras, tempo cepat)")
+        return df, scaler, kmeans, gnb, logreg
+    except FileNotFoundError:
+        st.error("File Model (.pkl) belum lengkap. Pastikan Anda sudah mengekspor StandardScaler, KMeans, NaiveBayes, dan LogisticRegression dari notebook.")
+        return None, None, None, None, None
 
-    st.info("Gunakan navigasi di sebelah kiri untuk mencoba sistem rekomendasi dan prediksi.")
+df, scaler, kmeans, gnb, logreg = load_assets()
 
-# --- HALAMAN 2: GENERATOR PLAYLIST ---
-elif pilihan_halaman == "Generator Playlist (Berdasarkan Mood)":
-    st.title("Smart Auto-Playlist")
-    st.write("Sistem akan merekomendasikan lagu berdasarkan karakteristik audio yang sesuai dengan aktivitas Anda.")
+# 2. NAVIGASI SIDEBAR
+st.sidebar.title("Spotify Analytics System")
+st.sidebar.markdown("---")
+pilihan_halaman = st.sidebar.radio(
+    "Pilih Modul Sistem:",
+    ["Beranda dan Pemahaman Bisnis",
+     "Prediksi Mood dan Auto-Playlist (Naive Bayes)",
+     "Moderasi Konten Eksplisit (LogReg)"]
+)
 
-    pilihan_mood = st.selectbox(
-        "Pilih Aktivitas atau Mood Anda saat ini:",
-        ["-- Pilih --"] + list(AKTIVITAS_CONFIG.keys())
-    )
+st.sidebar.markdown("---")
+st.sidebar.caption("Sistem ini dibangun menggunakan:")
+st.sidebar.caption("1. Unsupervised: K-Means")
+st.sidebar.caption("2. Supervised: Naive Bayes & Logistic Regression")
 
-    if st.button("Buat Playlist"):
-        if pilihan_mood == "-- Pilih --":
-            st.warning("Silakan pilih aktivitas terlebih dahulu.")
-        else:
-            target_cluster, target_genre = AKTIVITAS_CONFIG[pilihan_mood]
+# 3. HALAMAN 1: BERANDA
+if pilihan_halaman == "Beranda dan Pemahaman Bisnis":
+    st.title("Sistem Analisis dan Prediksi Karakteristik Audio Spotify")
+    st.write("Aplikasi ini mendemonstrasikan integrasi antara metodologi Unsupervised Learning untuk membuat segmentasi pasar, dan Supervised Learning untuk melakukan klasifikasi lagu baru.")
 
-            # Filter berdasarkan cluster DAN genre yang sudah ditentukan
-            df_hasil = df[
-                (df['cluster'] == target_cluster) &
-                (df['track_genre'] == target_genre)
-            ]
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Fase 1: Labeling (K-Means)")
+        st.info(
+            "Menggunakan K-Means Clustering, kami mengelompokkan 114.000 lagu tanpa label emosi "
+            "menjadi dua segmen (klaster) utama secara objektif berdasarkan fitur akustiknya:"
+        )
+        st.write("- Cluster 0 (Relaksasi dan Fokus): Tempo lambat, akustik tinggi, energi rendah.")
+        st.write("- Cluster 1 (Agresif dan Berenergi): Tempo kencang, distorsi, energi tinggi.")
 
-            # Fallback: kalau genre tidak cukup datanya, ambil dari cluster saja
-            if len(df_hasil) < 5:
-                st.info(f"Data genre '{target_genre}' di cluster {target_cluster} terbatas, menampilkan dari cluster yang sama.")
-                df_hasil = df[df['cluster'] == target_cluster]
+    with col2:
+        st.subheader("Fase 2: Klasifikasi (Supervised)")
+        st.success(
+            "Hasil pelabelan K-Means tersebut kami pelajari menggunakan algoritma klasifikasi probabilistik "
+            "untuk memprediksi lagu baru di masa depan:"
+        )
+        st.write("- Naive Bayes: Digunakan untuk memprediksi Klaster (Mood) dari lagu baru.")
+        st.write("- Logistic Regression: Digunakan untuk mendeteksi apakah lagu baru mengandung unsur eksplisit atau kasar.")
 
-            # Mengambil sampel 5 lagu
-            playlist = df_hasil.sample(5)[['track_name', 'artists', 'popularity', 'track_genre']]
-            playlist.columns = ['Judul Lagu', 'Artis', 'Skor Popularitas', 'Genre Asli']
-            playlist.reset_index(drop=True, inplace=True)
+# 4. HALAMAN 2: PREDIKSI MOOD & PLAYLIST (NAIVE BAYES)
+elif pilihan_halaman == "Prediksi Mood dan Auto-Playlist (Naive Bayes)":
+    st.title("Smart Auto-Playlist berbasis Naive Bayes")
+    st.write("Uji model Naive Bayes Classifier kami. Masukkan metrik audio dari sebuah trek baru, dan sistem akan memprediksi nuansa emosinya serta mencarikan 5 lagu referensi.")
 
-            st.success(f"Berikut adalah rekomendasi lagu untuk '{pilihan_mood}':")
-            st.table(playlist)
-            st.caption(f"Catatan Developer: Data ditarik dari Cluster {target_cluster} dengan genre '{target_genre}' berdasarkan metrik audio.")
-
-# --- HALAMAN 3: PREDIKSI LAGU BARU (Implementasi Model) ---
-elif pilihan_halaman == "Prediksi Segmen Lagu Baru":
-    st.title("Prediksi Segmen Lagu (Clustering)")
-    st.write("Masukkan parameter metrik audio dari sebuah lagu baru untuk melihat ke segmen mana lagu tersebut akan dikelompokkan oleh mesin.")
-
+    st.markdown("### Masukkan Fitur Audio Lagu Baru:")
     col1, col2, col3 = st.columns(3)
 
     with col1:
         danceability = st.slider("Danceability", 0.0, 1.0, 0.5)
         energy = st.slider("Energy", 0.0, 1.0, 0.5)
         loudness = st.slider("Loudness (dB)", -60.0, 5.0, -10.0)
-
     with col2:
         speechiness = st.slider("Speechiness", 0.0, 1.0, 0.1)
         acousticness = st.slider("Acousticness", 0.0, 1.0, 0.5)
         instrumentalness = st.slider("Instrumentalness", 0.0, 1.0, 0.0)
-
     with col3:
         liveness = st.slider("Liveness", 0.0, 1.0, 0.1)
         valence = st.slider("Valence (Keceriaan)", 0.0, 1.0, 0.5)
         tempo = st.slider("Tempo (BPM)", 0.0, 250.0, 120.0)
 
-    if st.button("Prediksi Cluster"):
-        input_data = pd.DataFrame([[danceability, energy, loudness, speechiness,
-                                    acousticness, instrumentalness, liveness, valence, tempo]],
-                                  columns=['danceability', 'energy', 'loudness', 'speechiness',
-                                           'acousticness', 'instrumentalness', 'liveness', 'valence', 'tempo'])
+    if st.button("Prediksi Mood dan Rekomendasikan Lagu", type="primary"):
+        if gnb and scaler:
+            # Siapkan data input
+            input_data = pd.DataFrame([[danceability, energy, loudness, speechiness,
+                                        acousticness, instrumentalness, liveness, valence, tempo]],
+                                      columns=['danceability', 'energy', 'loudness', 'speechiness',
+                                               'acousticness', 'instrumentalness', 'liveness', 'valence', 'tempo'])
 
-        input_scaled = scaler.transform(input_data)
-        hasil_prediksi = kmeans.predict(input_scaled)[0]
+            # Standarisasi Input
+            input_scaled = scaler.transform(input_data)
 
-        if hasil_prediksi == 0:
-            st.success("Hasil Prediksi: Lagu ini masuk ke CLUSTER 0 (Segmen Relaksasi & Akustik)")
-        elif hasil_prediksi == 1:
-            st.error("Hasil Prediksi: Lagu ini masuk ke CLUSTER 1 (Segmen Agresif & Intens)")
+            # Prediksi menggunakan NAIVE BAYES (Supervised)
+            hasil_prediksi = gnb.predict(input_scaled)[0]
+            probabilitas = gnb.predict_proba(input_scaled)[0]
+
+            st.markdown("---")
+            st.subheader("Hasil Prediksi Naive Bayes")
+
+            col_hasil, col_rekom = st.columns([1, 2])
+
+            with col_hasil:
+                if hasil_prediksi == 0:
+                    st.success("Segmen Terprediksi: Cluster 0 (Relaksasi)")
+                    st.metric("Tingkat Keyakinan (Probabilitas)", f"{probabilitas[0]*100:.2f}%")
+                else:
+                    st.error("Segmen Terprediksi: Cluster 1 (Agresif)")
+                    st.metric("Tingkat Keyakinan (Probabilitas)", f"{probabilitas[1]*100:.2f}%")
+
+            with col_rekom:
+                st.write("**5 Lagu Serupa di Database Kami:**")
+                # Filter dataset berdasarkan hasil prediksi
+                df_rekomendasi = df[df['cluster'] == hasil_prediksi].sample(5)[['track_name', 'artists', 'track_genre']]
+                df_rekomendasi.columns = ['Judul Lagu', 'Artis', 'Genre']
+                st.dataframe(df_rekomendasi, use_container_width=True)
+
+# 5. HALAMAN 3: MODERASI KONTEN (LOGISTIC REGRESSION)
+elif pilihan_halaman == "Moderasi Konten Eksplisit (LogReg)":
+    st.title("Sistem Moderasi Keamanan Konten (Logistic Regression)")
+    st.write("Platform musik digital memerlukan pendeteksian dini terhadap konten dewasa. Model Logistic Regression kami dapat mendeteksi probabilitas lagu memiliki lirik eksplisit murni berdasarkan komposisi instrumen dan gaya audionya.")
+
+    st.markdown("### Masukkan Fitur Audio:")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        speechiness = st.slider("Speechiness (Kerapatan Kata)", 0.0, 1.0, 0.2)
+        danceability = st.slider("Danceability", 0.0, 1.0, 0.6)
+        energy = st.slider("Energy", 0.0, 1.0, 0.7)
+        loudness = st.slider("Loudness (dB)", -40.0, 5.0, -5.0)
+    with col2:
+        acousticness = st.slider("Acousticness", 0.0, 1.0, 0.1)
+        instrumentalness = st.slider("Instrumentalness", 0.0, 1.0, 0.0)
+        liveness = st.slider("Liveness", 0.0, 1.0, 0.2)
+        valence = st.slider("Valence", 0.0, 1.0, 0.5)
+        tempo = st.slider("Tempo (BPM)", 50.0, 200.0, 100.0)
+
+    if st.button("Analisis Keamanan Lagu", type="primary"):
+        if logreg and scaler:
+            import statsmodels.api as sm
+
+            # Siapkan data input
+            input_data = pd.DataFrame([[danceability, energy, loudness, speechiness,
+                                        acousticness, instrumentalness, liveness, valence, tempo]],
+                                      columns=['danceability', 'energy', 'loudness', 'speechiness',
+                                               'acousticness', 'instrumentalness', 'liveness', 'valence', 'tempo'])
+
+            # Standarisasi
+            input_scaled = scaler.transform(input_data)
+
+            # Karena LogReg menggunakan statsmodels, kita harus menambahkan constant
+            input_reg = sm.add_constant(input_scaled, has_constant='add')
+
+            # Pastikan dimensi sesuai dengan saat training
+            input_reg = np.insert(input_scaled, 0, 1.0, axis=1)
+
+            # Prediksi menggunakan LOGISTIC REGRESSION
+            prob_explicit = logreg.predict(input_reg)[0]
+
+            st.markdown("---")
+            if prob_explicit >= 0.5:
+                st.error("### HASIL: POTENSI KONTEN EKSPLISIT TINGGI")
+                st.write(f"Model Regresi Logistik kami menghitung probabilitas sebesar **{prob_explicit*100:.1f}%** bahwa lagu ini mengandung bahasa kasar atau lirik dewasa.")
+                st.caption("Catatan Analisis: Persentase tinggi umumnya didorong oleh kombinasi nilai Speechiness yang tinggi dan tingkat keakustikan yang rendah.")
+            else:
+                st.success("### HASIL: AMAN (NON-EKSPLISIT)")
+                st.write(f"Model memprediksi lagu ini ramah keluarga dengan tingkat probabilitas eksplisit sebesar **{prob_explicit*100:.1f}%**.")
