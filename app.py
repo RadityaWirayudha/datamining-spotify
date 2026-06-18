@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import pickle
 import numpy as np
+import statsmodels.api as sm # Pindahkan impor ini ke sini
 
 # Konfigurasi Halaman Web
 st.set_page_config(
@@ -154,7 +155,7 @@ elif pilihan_halaman == "Moderasi Konten Eksplisit (LogReg)":
 
     if st.button("Analisis Keamanan Lagu", type="primary"):
         if logreg and scaler:
-            import statsmodels.api as sm
+            # import statsmodels.api as sm # Ini dipindahkan ke atas
 
             input_data = pd.DataFrame([[danceability, energy, loudness, speechiness,
                                         acousticness, instrumentalness, liveness, valence, tempo]],
